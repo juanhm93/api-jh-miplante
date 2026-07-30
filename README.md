@@ -109,3 +109,32 @@ Variable de entorno (caso hipotético; ver [`.env.example`](.env.example)):
 ```env
 FIRMA_WEBHOOK_SECRET=
 ```
+
+### A.5 — Registro (logging) de una validación de identidad
+
+**Archivos:**
+
+- [`app/Services/IdentidadService.php`](app/Services/IdentidadService.php)
+- [`app/Models/Cliente.php`](app/Models/Cliente.php)
+
+**Problema:** El logger de validación de identidad registraba datos sensibles (cédula completa, OTP y score crediticio). En un log eso es un riesgo de privacidad innecesario: para trazar que la validación ocurrió basta con identificar al cliente, no exponer secretos ni datos de buró.
+
+**Corrección:** se dejó de loguear el OTP y el score. La cédula se enmascara (solo últimos 4 dígitos) con un método en el modelo (`cedulaEnmascarada()`), para reutilizarlo donde haga falta. El OTP, aunque sea temporal / de un solo uso, sigue siendo un secreto: si alguien lee los logs mientras el código sigue vigente, podría usarlo. Por eso también se omitió.
+
+```php
+public function logger(Cliente $cliente, string $codigoOtp, string $scoreBureau): void
+{
+    Log::info('Validando identidad', [
+        'cliente_id' => $cliente->id,
+        'cedula'     => $cliente->cedulaEnmascarada(),
+    ]);
+}
+```
+
+```php
+public function cedulaEnmascarada(): string
+{
+    return str_repeat('*', max(0, strlen($this->cedula) - 4)) . substr($this->cedula, -4);
+}
+```
+
