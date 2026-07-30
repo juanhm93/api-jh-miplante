@@ -83,7 +83,7 @@ public function update(UpdateSolicitudRequest $request, Solicitud $solicitud)
 
 **Problema:** Al comprar había que garantizar que el producto exista, que tenga stock suficiente y que el inventario se descuente bien. El riesgo principal era la concurrencia: dos compras a la vez podían leer el mismo stock y sobrevender.
 
-**Corrección:** Revisando la [documentación de queries de Laravel](https://laravel.com/docs/12.x/queries#pessimistic-locking), la opción que mejor encajaba fue el *pessimistic locking* con `lockForUpdate()` dentro de una transacción: mientras una compra descuenta stock, la otra espera. Con `firstOrFail()` me aseguro de que el producto exista; si no hay stock, lanzo una excepción.
+**Corrección:** Revisando la [documentación de queries de Laravel](https://laravel.com/docs/12.x/queries#pessimistic-locking), la opción que mejor encajaba fue el _pessimistic locking_ con `lockForUpdate()` dentro de una transacción: mientras una compra descuenta stock, la otra espera. Con `firstOrFail()` me aseguro de que el producto exista; si no hay stock, lanzo una excepción.
 
 ```php
 public function comprar(int $productoId, int $cantidad): void
@@ -200,11 +200,11 @@ Protegido con `auth:sanctum`. Recibe una lista de cuotas (`monto` + `fecha` en `
 
 ```json
 {
-  "cuotas": [
-    { "monto": 150000, "fecha": "2026-08-15" },
-    { "monto": 150000, "fecha": "2026-09-15" },
-    { "monto": 150000, "fecha": "2026-10-15" }
-  ]
+    "cuotas": [
+        { "monto": 150000, "fecha": "2026-08-15" },
+        { "monto": 150000, "fecha": "2026-09-15" },
+        { "monto": 150000, "fecha": "2026-10-15" }
+    ]
 }
 ```
 
@@ -212,9 +212,9 @@ Respuesta:
 
 ```json
 {
-  "total_a_pagar": 450000,
-  "numero_cuotas": 3,
-  "fecha_ultima_cuota": "2026-10-15"
+    "total_a_pagar": 450000,
+    "numero_cuotas": 3,
+    "fecha_ultima_cuota": "2026-10-15"
 }
 ```
 
@@ -227,3 +227,33 @@ Las tasas de fianza e IVA viven en `config/credito.php` (variables `CREDITO_TASA
 ### Pruebas
 
 [`tests/Feature/CreditoResumenTest.php`](tests/Feature/CreditoResumenTest.php) cubre el resumen correcto (total, cantidad y fecha última) y el rechazo de payload inválido (422).
+
+## Preguntas cortas
+
+### 4. Te asignan un módulo en producción con un bug de cálculo que cobra de más a algunos clientes. El código es antiguo y no tiene pruebas. ¿Cuáles son tus primeros pasos para diagnosticar y corregir sin romper nada más?
+
+Primero acotaría el impacto: qué clientes, desde cuándo y por cuánto se está cobrando de más. Con eso tengo un universo claro y puedo armar casos de prueba reales.
+
+Luego reproduciría el cálculo fuera de producción (local o un ambiente de prueba) con esos mismos datos, haciendo una “corrida en frío”: monto esperado vs monto que está cobrando el sistema. Si hace falta, agregaría logs temporales en los puntos donde se arma el total, solo para ver en qué paso se desvía.
+
+Como el código es viejo y no tiene pruebas, antes de tocar la lógica escribiría pruebas mínimas con los casos que ya identifiqué (el incorrecto y al menos uno correcto). Así la corrección queda cubierta y bajo el riesgo de romper otros cobros.
+
+Solo después corregiría el cálculo, validaría con esos casos y desplegaría con cuidado, dejando documentado el alcance del error por si hay que ajustar cobros a los clientes afectados.
+
+---
+
+### 5. En pocas líneas: ¿cuál es la diferencia entre autenticación y autorización, y por qué importa en un sistema que maneja cupos de crédito?
+
+La autenticación responde _quién eres_ (por ejemplo, iniciar sesión y tener una sesión o token válido). La autorización responde _qué puedes hacer_ una vez autenticado.
+
+En un sistema de cupos de crédito eso es crítico: un usuario autenticado no debería poder aprobar cupos, ver solicitudes ajenas o modificar límites solo por estar logueado. Hay acciones propias del solicitante y otras reservadas a roles como administrador. En Laravel eso se suele manejar con policies, gates o middleware de permisos.
+
+---
+
+### 6. Si tuvieras que integrarte con un servicio externo por SOAP/XML que a veces responde lento o falla, ¿qué precauciones tomarías para que eso no tumbe tu aplicación?
+
+No haría que la petición del usuario dependa directamente de ese servicio. Lo movería a una cola con un job en Laravel: la app responde rápido y el proceso lento corre aparte.
+
+Además pondría timeouts claros, reintentos controlados (sin saturar el servicio) y manejo de fallos: si SOAP no responde, la app no se cae; registra el error y puede reintentar o marcar el caso para revisión.
+
+Un cron podría ayudar a reprocesar pendientes, pero no como única estrategia: si la llamada es lenta o falla, el job en cola da más control y menos riesgo de tumbar la experiencia del usuario.
