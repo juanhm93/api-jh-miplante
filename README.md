@@ -53,3 +53,27 @@ public function update(UpdateSolicitudRequest $request, Solicitud $solicitud)
     return back()->with('ok', 'Datos actualizados');
 }
 ```
+
+### A.3 — Descuento de inventario al comprar
+
+**Archivo:** [`app/Services/InventarioService.php`](app/Services/InventarioService.php)
+
+**Problema:** Al comprar había que garantizar que el producto exista, que tenga stock suficiente y que el inventario se descuente bien. El riesgo principal era la concurrencia: dos compras a la vez podían leer el mismo stock y sobrevender.
+
+**Corrección:** Revisando la [documentación de queries de Laravel](https://laravel.com/docs/12.x/queries#pessimistic-locking), la opción que mejor encajaba fue el *pessimistic locking* con `lockForUpdate()` dentro de una transacción: mientras una compra descuenta stock, la otra espera. Con `firstOrFail()` me aseguro de que el producto exista; si no hay stock, lanzo una excepción.
+
+```php
+public function comprar(int $productoId, int $cantidad): void
+{
+    DB::transaction(function () use ($productoId, $cantidad) {
+        $producto = Producto::where('id', $productoId)->lockForUpdate()->firstOrFail();
+
+        if ($producto->stock >= $cantidad) {
+            $producto->stock = $producto->stock - $cantidad;
+            $producto->save();
+        } else {
+            throw new \Exception('Sin stock');
+        }
+    });
+}
+```
