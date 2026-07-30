@@ -77,3 +77,35 @@ public function comprar(int $productoId, int $cantidad): void
     });
 }
 ```
+
+### A.4 — Recepción de un webhook de firma digital
+
+**Archivos:**
+
+- [`app/Http/Controllers/FirmaController.php`](app/Http/Controllers/FirmaController.php)
+- [`app/Http/Requests/RecibirFirmaWebhookRequest.php`](app/Http/Requests/RecibirFirmaWebhookRequest.php)
+- [`app/Models/Pagare.php`](app/Models/Pagare.php)
+
+**Problema:** El endpoint que recibe el webhook del proveedor de firma digital marcaba un pagaré como `FIRMADO` sin autenticar la petición. Cualquiera podría llamar al endpoint y firmar pagarés ajenos.
+
+**Corrección:** se implementó un `FormRequest` (`RecibirFirmaWebhookRequest`) que autoriza con un secret compartido (`FIRMA_WEBHOOK_SECRET`) enviado como Bearer token, y valida que `pagare_id` exista. La comparación usa `hash_equals` para evitar timing attacks. El controlador solo actúa si esa autorización y validación pasan.
+
+También me parecieron atractivas otras prácticas (firma HMAC del payload, allowlist de IPs, protección ante replay con timestamp/nonce), pero para este caso hipotético preferí el token generado que se puede proveer al cliente/proveedor: es simple de integrar y deja claro el contrato de autenticación.
+
+```php
+public function authorize(): bool
+{
+    $token = $this->bearerToken();
+    $secret = (string) env('FIRMA_WEBHOOK_SECRET');
+
+    return $token !== null
+        && $secret !== ''
+        && hash_equals($secret, $token);
+}
+```
+
+Variable de entorno (caso hipotético; ver [`.env.example`](.env.example)):
+
+```env
+FIRMA_WEBHOOK_SECRET=
+```
