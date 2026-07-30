@@ -11,7 +11,33 @@ Soluciones y análisis de las tareas del challenge.
 composer install
 cp .env.example .env
 php artisan key:generate
+```
+
+Luego elige una base de datos:
+
+**Opción A — SQLite** (por defecto en `.env.example`):
+
+```bash
 touch database/database.sqlite
+php artisan migrate --seed
+```
+
+**Opción B — MySQL:** crea la base de datos y configura el `.env`:
+
+```bash
+mysql -u root -e "CREATE DATABASE miplante CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=miplante
+DB_USERNAME=root
+DB_PASSWORD=
+```
+
+```bash
 php artisan migrate --seed
 ```
 
