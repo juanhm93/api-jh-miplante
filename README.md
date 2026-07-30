@@ -5,11 +5,34 @@ Soluciones y análisis de las tareas del challenge.
 ## Configuración del proyecto
 
 - **PHP:** 8.2+ (este proyecto se desarrolló con PHP **8.3**). Laravel 12 requiere `^8.2`.
-- **Dependencias:**
+- **Dependencias e instalación:**
 
 ```bash
 composer install
+cp .env.example .env
+php artisan key:generate
+touch database/database.sqlite
+php artisan migrate --seed
 ```
+
+Variables de entorno relevantes (ver [`.env.example`](.env.example)):
+
+```env
+# Secret compartido para autenticar el webhook de firma digital (A.4).
+FIRMA_WEBHOOK_SECRET=
+
+# Tasas contables (config del software; no vienen en el payload del API).
+CREDITO_TASA_FIANZA=0.05
+CREDITO_TASA_IVA=0.19
+
+# Usuarios iniciales del seed (login desde el principio).
+# Los correos se definen en .env / config/seed.php, no se documentan aquí.
+SEED_USER_EMAIL_LAURA=
+SEED_USER_EMAIL_GERENCIA=
+SEED_USER_PASSWORD=
+```
+
+Tras el seed, los usuarios de [`config/seed.php`](config/seed.php) quedan listos para autenticarse vía `POST /api/login`.
 
 ## Encuentra y corrige
 
@@ -138,3 +161,69 @@ public function cedulaEnmascarada(): string
 }
 ```
 
+## Construyendo algo pequeño (end-to-end)
+
+Flujo mínimo de API: autenticación con Sanctum y un endpoint que resume las cuotas de un crédito.
+
+**Archivos:**
+
+- [`routes/api.php`](routes/api.php)
+- [`app/Http/Controllers/Api/LoginController.php`](app/Http/Controllers/Api/LoginController.php)
+- [`app/Http/Controllers/Api/CreditoController.php`](app/Http/Controllers/Api/CreditoController.php)
+- [`app/Http/Requests/ResumenCreditoRequest.php`](app/Http/Requests/ResumenCreditoRequest.php)
+- [`app/Services/CheckoutService.php`](app/Services/CheckoutService.php)
+- [`config/credito.php`](config/credito.php)
+- [`config/seed.php`](config/seed.php)
+- [`database/seeders/DatabaseSeeder.php`](database/seeders/DatabaseSeeder.php)
+- [`tests/Feature/CreditoResumenTest.php`](tests/Feature/CreditoResumenTest.php)
+
+### Autenticación — `POST /api/login`
+
+El `LoginController` valida `email`, `password` y `device_name`, verifica credenciales y responde con el usuario y un token de Sanctum (`createToken`). El modelo `User` usa el trait `HasApiTokens`.
+
+```php
+return response()->json([
+    'data' => [
+        'user' => [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+        ],
+        'token' => $user->createToken($request->device_name)->plainTextToken,
+    ],
+], 200);
+```
+
+### Resumen de crédito — `POST /api/creditos/resumen`
+
+Protegido con `auth:sanctum`. Recibe una lista de cuotas (`monto` + `fecha` en `Y-m-d`), validada por `ResumenCreditoRequest`, y delega el cálculo a `CheckoutService::resumenCuotas`: total a pagar, número de cuotas y fecha de la última.
+
+```json
+{
+  "cuotas": [
+    { "monto": 150000, "fecha": "2026-08-15" },
+    { "monto": 150000, "fecha": "2026-09-15" },
+    { "monto": 150000, "fecha": "2026-10-15" }
+  ]
+}
+```
+
+Respuesta:
+
+```json
+{
+  "total_a_pagar": 450000,
+  "numero_cuotas": 3,
+  "fecha_ultima_cuota": "2026-10-15"
+}
+```
+
+Las tasas de fianza e IVA viven en `config/credito.php` (variables `CREDITO_TASA_*`); no viajan en el payload. El resumen de cuotas solo suma montos: no aplica esas tasas hasta tener más contexto contable.
+
+### Seed de usuarios
+
+`DatabaseSeeder` crea los usuarios definidos en `config/seed.php` (correos y clave vía `SEED_USER_*` en `.env`). Así se puede hacer login desde el primer arranque sin crear cuentas a mano.
+
+### Pruebas
+
+[`tests/Feature/CreditoResumenTest.php`](tests/Feature/CreditoResumenTest.php) cubre el resumen correcto (total, cantidad y fecha última) y el rechazo de payload inválido (422).
